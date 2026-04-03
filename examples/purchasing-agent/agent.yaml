@@ -1,0 +1,110 @@
+# ── Purchasing Agent — Example agent.yaml ──────────────────────────────────────
+#
+# This file demonstrates a complete financial_governance configuration for an
+# autonomous purchasing agent. It is a declarative specification only.
+#
+# RUNTIME CONFIGURATION NOTE:
+# The firewall endpoint and agent authentication credentials are NOT in this
+# file. They are supplied at runtime via environment variables:
+#
+#   VALKURAI_ENDPOINT   — URL of the Valkurai firewall (e.g. https://api.valkurai.ai)
+#   VALKURAI_AGENT_KEY  — Agent key issued by Valkurai at agent registration
+#
+# These values change between environments (dev / staging / production) and
+# MUST NOT be hardcoded here. Runtime config belongs in environment variables
+# or a secrets manager, never in agent.yaml.
+# ───────────────────────────────────────────────────────────────────────────────
+
+agent:
+  name: purchasing-agent
+  version: "1.0.0"
+  description: >
+    Autonomous purchasing agent for cloud infrastructure and software subscriptions.
+    Operates within the spending limits declared in financial_governance.
+
+  capabilities:
+    - financial_transactions
+    - vendor_lookup
+    - invoice_processing
+
+  # ── Identity & compliance ───────────────────────────────────────────────────
+  compliance:
+    risk_tier: medium
+    recordkeeping:
+      retention_period: 7y          # Required for financial records in AU
+      immutable: true
+    audit_log: true
+
+  # ── Financial governance ────────────────────────────────────────────────────
+  # The financial_governance block is a service binding — it declares the
+  # policy contract. The declared firewall owns enforcement. This agent runtime
+  # calls the firewall synchronously before any financial action and treats its
+  # response as authoritative.
+  #
+  # Conformance: this agent is compliant with financial_governance v1.0.
+  # See: https://github.com/Danbi58/gitagent-spec/blob/main/spec/financial_governance.md
+  financial_governance:
+    enabled: true
+    firewall: valkurai              # String identifier — not an enum
+    payment_schema_version: "1.0"
+
+    spending:
+      max_per_transaction_cents: 5000     # $50.00 AUD per transaction
+      max_monthly_cents: 200000           # $2,000.00 AUD per month
+      currency_default: AUD
+      allowed_categories:
+        - software
+        - api
+        - saas
+        - cloud
+      blocked_categories:
+        - gambling
+        - crypto
+        - unknown
+
+    approval:
+      require_above_cents: 2000           # Transactions > $20.00 AUD require human approval
+      approval_timeout_minutes: 60        # Approver has 60 minutes to respond
+      auto_deny_on_timeout: true          # Denied automatically if no response in 60 min
+
+    audit:
+      extends: compliance.recordkeeping   # Inherits retention_period from compliance block
+      transaction_log: true               # Log all transactions (approved, denied, flagged)
+
+    event_schema:
+      payment_required:
+        fields: [type, amount_cents, currency, category, context, request_id]
+      payment_approval:
+        fields: [type, request_id, approved, approved_by, approved_at]
+      payment_receipt:
+        fields: [type, request_id, amount_settled_cents, settled_at, credit_status]
+
+  # ── Tool definitions ────────────────────────────────────────────────────────
+  tools:
+    - name: purchase_api_credits
+      description: >
+        Purchase API credits from a software vendor. Submits a payment_required
+        event to the financial firewall before any transaction is initiated.
+      parameters:
+        vendor: string
+        amount_dollars: number
+        category: string
+        description: string
+
+    - name: provision_cloud_resource
+      description: >
+        Provision a cloud infrastructure resource. Submits to the financial
+        firewall before the resource is created.
+      parameters:
+        provider: string
+        resource_type: string
+        estimated_monthly_cost_dollars: number
+        description: string
+
+  # ── Runtime integration (environment variables only) ─────────────────────────
+  # The runtime resolves these environment variable references at startup.
+  # They are never substituted into this file.
+  integrations:
+    valkurai:
+      endpoint: ${VALKURAI_ENDPOINT}      # e.g. https://api.valkurai.ai
+      agent_key: ${VALKURAI_AGENT_KEY}    # Issued at agent registration — keep secret
