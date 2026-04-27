@@ -7,7 +7,7 @@
 # The firewall endpoint and agent authentication credentials are NOT in this
 # file. They are supplied at runtime via environment variables:
 #
-#   VALKURAI_ENDPOINT   — URL of the Valkurai firewall (e.g. https://api.valkurai.ai)
+#   VALKURAI_ENDPOINT   — URL of the Valkurai firewall (e.g. https://api.valkurai.com)
 #   VALKURAI_AGENT_KEY  — Agent key issued by Valkurai at agent registration
 #
 # These values change between environments (dev / staging / production) and
@@ -31,7 +31,7 @@ agent:
   compliance:
     risk_tier: medium
     recordkeeping:
-      retention_period: 7y          # Required for financial records in AU
+      retention_period: 10y          # Required for financial records in AU and EU
       immutable: true
     audit_log: true
 
@@ -42,7 +42,7 @@ agent:
   # response as authoritative.
   #
   # Conformance: this agent is compliant with financial_governance v1.0.
-  # See: https://github.com/Danbi58/gitagent-spec/blob/main/spec/financial_governance.md
+  # See: https://github.com/valkurai/gitagent-spec/blob/main/spec/financial_governance.md 
   financial_governance:
     enabled: true
     firewall: valkurai              # String identifier — not an enum
@@ -106,5 +106,5 @@ agent:
   # They are never substituted into this file.
   integrations:
     valkurai:
-      endpoint: ${VALKURAI_ENDPOINT}      # e.g. https://api.valkurai.ai
+      endpoint: ${VALKURAI_ENDPOINT}      # e.g. https://api.valkurai.com
       agent_key: ${VALKURAI_AGENT_KEY}    # Issued at agent registration — keep secret
