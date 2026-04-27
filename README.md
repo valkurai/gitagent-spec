@@ -15,7 +15,7 @@ This standard defines:
 
 ## Origin
 
-This standard emerged from community discussion in [open-gitagent/gitagent issue #38](https://github.com/open-gitagent/gitagent/issues/38), where the absence of a runtime financial enforcement interface in agent specs was independently identified and verified by contributors. The core proposal was endorsed as technically sound by that community.
+This standard emerged from community discussion in [open-gitagent/gitagent-protocol issue #38](https://githubb.com/open-gitagent/gitagent-protocol/issues/38), where the absence of a runtime financial enforcement interface in agent specs was independently identified and verified by contributors. The core proposal was endorsed as technically sound by that community.
 
 It is consistent with the [Agentic Commerce Protocol](https://openai.com/index/introducing-the-model-spec/) (OpenAI + Stripe), which defines how agents transact. The `financial_governance` block defines the governance layer that sits in front of those transactions.
 
