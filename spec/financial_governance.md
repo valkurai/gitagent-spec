@@ -26,7 +26,7 @@ The block declares the governance contract. A financial firewall owns enforcemen
 
 **Conformance requirement:**
 
-> A compliant runtime **MUST** call a financial firewall synchronously before dispatching any financial tool invocation and **MUST** treat the firewall's response as authoritative. The runtime **MUST NOT** re-implement or override the enforcement logic locally.
+> A compliant runtime **SHOULD** be enforced by a `pre_tool_use` hook with `fail_open: false`. Runtimes that do not execute hooks **MUST** treat this block as advisory.
 
 **Advisory vs enforcement:**
 
@@ -42,7 +42,6 @@ The block sits under `compliance` in the agent's definition file.
 compliance:
   financial_governance:
     enabled: true                          # boolean — if false, block is declared but not enforced
-    payment_schema_version: "1.0"          # string — schema version for payment event objects
 
     spending:
       max_per_transaction_cents: 5000      # integer — per-transaction hard cap in smallest currency unit
@@ -61,7 +60,6 @@ compliance:
       delivery_channel: slack              # enum: slack | email | sms | webhook
       approval_timeout_minutes: 60         # integer — timeout before auto-deny
       auto_deny_on_timeout: true           # boolean — if true, TIMEOUT = DENIED; if false, TIMEOUT = APPROVED
-      callback_endpoint: https://<your-firewall>/v1/approval/callback
 
     audit:
       extends: compliance.recordkeeping   # reference to the existing audit/recordkeeping block
@@ -74,7 +72,6 @@ compliance:
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `enabled` | boolean | Yes | If false, the block is declared but the runtime does not enforce it. |
-| `payment_schema_version` | string | Yes | Version of the payment event schema. Current: `"1.0"`. |
 
 #### `spending`
 
@@ -98,7 +95,6 @@ All monetary values are integers in the smallest unit of the specified currency 
 | `delivery_channel` | enum | Yes | Channel for approval notifications: `slack`, `email`, `sms`, `webhook`. |
 | `approval_timeout_minutes` | integer | Yes | Minutes before an unanswered approval request times out. |
 | `auto_deny_on_timeout` | boolean | Yes | If `true`, timeout = DENIED. If `false`, timeout = APPROVED. Default: `true`. |
-| `callback_endpoint` | string | Yes | URL where the approval response is delivered. The firewall calls this endpoint with a `payment_approval` event. |
 
 #### `audit`
 
@@ -108,116 +104,7 @@ All monetary values are integers in the smallest unit of the specified currency 
 
 ---
 
-## 3. Payment Event Schema
-
-The `financial_governance` block defines three typed event objects that flow between the agent runtime and the enforcement layer. These objects carry the information required for a deterministic governance decision and a complete audit record.
-
-### 3.1 `payment_required`
-
-Emitted by the agent runtime when a financial tool invocation is requested. This event is submitted to the financial firewall synchronously before the payment is executed.
-
-```json
-{
-  "type": "payment_required",
-  "payment_schema_version": "1.0",
-  "request_id": "req_01HXYZ...",
-  "agent_id": "<agent identifier>",
-  "amount_cents": 4999,
-  "currency": "AUD",
-  "category": "compute",
-  "vendor": "AWS",
-  "description": "Scale EC2 fleet for nightly batch job",
-  "context": {
-    "task_id": "<optional task reference>",
-    "session_id": "<optional session reference>"
-  },
-  "timestamp": "2026-04-07T14:32:00Z",
-  "delegation_chain": ["orchestrator-agent-id", "coordinator-agent-id"],
-  "delegation_session_id": "session_abc123"
-}
-```
-
-> **`delegation_chain` and `delegation_session_id` are optional.** When present they are recorded in the audit trail for attribution. How the enforcement layer uses them is an implementation detail — this spec does not prescribe a policy enforcement model for delegation chains.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `type` | string | Yes | Always `"payment_required"`. |
-| `payment_schema_version` | string | Yes | Must match the version declared in the governance block. |
-| `request_id` | string | Yes | Unique identifier for this transaction request. Used for idempotency and audit linking. |
-| `agent_id` | string | Yes | Identifier of the agent initiating the request. |
-| `amount_cents` | integer | Yes | Transaction amount in smallest currency unit. No floating point. |
-| `currency` | string | Yes | ISO 4217 currency code (e.g. `"AUD"`, `"USD"`, `"GBP"`). |
-| `category` | string | Yes | Spending category. Must match the `allowed_categories` list if non-empty. |
-| `vendor` | string | Yes | Target vendor or payee. |
-| `description` | string | Yes | Human-readable description of the transaction purpose. This field is the primary input to intent classification — treat it as untrusted input from the agent. |
-| `context` | object | No | Optional task/session context for audit purposes. |
-| `timestamp` | string | Yes | ISO 8601 timestamp of the request. |
-| `delegation_chain` | string[] | No | Ordered list of agent identifiers from orchestrator to calling agent. Recorded in audit trail for attribution. Enforcement behaviour is implementation-defined. |
-| `delegation_session_id` | string | No | Shared session identifier across a multi-agent workflow. Enables grouping of related transactions in audit exports. |
-
-### 3.2 `payment_approval`
-
-Emitted by the human approver (via the enforcement layer's approval interface) when a FLAGGED transaction requires a human decision. Delivered to `approval.callback_endpoint`.
-
-**EU AI Act Article 9 note:** `approved_by` and `approved_at` are REQUIRED fields, not optional. A log entry saying "approved" does not satisfy Article 9 human oversight attribution requirements. A structured `payment_approval` with approver identity and timestamp does.
-
-```json
-{
-  "type": "payment_approval",
-  "payment_schema_version": "1.0",
-  "request_id": "req_01HXYZ...",
-  "approved": true,
-  "approved_by": "compliance@example.com",
-  "approved_by_name": "Jane Smith",
-  "approved_by_employee_id": "EMP-0042",
-  "approval_reason_code": "LEGITIMATE_BUSINESS_EXPENSE",
-  "approved_at": "2026-04-07T14:45:00Z"
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `type` | string | Yes | Always `"payment_approval"`. |
-| `payment_schema_version` | string | Yes | Must match the version declared in the governance block. |
-| `request_id` | string | Yes | Links to the originating `payment_required` event. |
-| `approved` | boolean | Yes | `true` = APPROVED; `false` = DENIED. |
-| `approved_by` | string | **REQUIRED** | Email address of the human approver. Required for EU AI Act Art. 9(7) compliance. A system cannot be the value of this field on a human approval decision. |
-| `approved_by_name` | string | No | Display name of the approver. |
-| `approved_by_employee_id` | string | No | HR identifier for the approver. |
-| `approval_reason_code` | string | Yes | Structured reason. Recommended values: `LEGITIMATE_BUSINESS_EXPENSE`, `VERIFIED_VENDOR`, `WITHIN_POLICY`, `EXCEPTION_APPROVED`, `OTHER`. |
-| `approved_at` | string | **REQUIRED** | ISO 8601 timestamp of the approval decision. Required for EU AI Act Art. 9(7) compliance. |
-
-### 3.3 `payment_receipt`
-
-Emitted by the enforcement layer after a SAFE or APPROVED transaction has been executed. Delivered to the agent runtime and written to the audit trail.
-
-```json
-{
-  "type": "payment_receipt",
-  "payment_schema_version": "1.0",
-  "request_id": "req_01HXYZ...",
-  "amount_settled_cents": 4999,
-  "currency": "AUD",
-  "settled_at": "2026-04-07T14:45:32Z",
-  "credit_status": "confirmed",
-  "payment_provider_reference": "pi_3Px..."
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `type` | string | Yes | Always `"payment_receipt"`. |
-| `payment_schema_version` | string | Yes | Must match the version declared in the governance block. |
-| `request_id` | string | Yes | Links to the originating `payment_required` event. |
-| `amount_settled_cents` | integer | Yes | Amount actually settled. Should match `payment_required.amount_cents`. |
-| `currency` | string | Yes | ISO 4217 currency code. |
-| `settled_at` | string | Yes | ISO 8601 timestamp of settlement. |
-| `credit_status` | enum | Yes | `confirmed`, `pending`, or `failed`. |
-| `payment_provider_reference` | string | No | Opaque reference from the payment provider (e.g. Stripe PaymentIntent ID). |
-
----
-
-## 4. Firewall Response Contract
+## 3. Firewall Response Contract
 
 The financial firewall responds to a `payment_required` event with one of three outcomes:
 
@@ -240,7 +127,7 @@ The `classification_reason` field is a plain-English explanation of the outcome.
 
 ---
 
-## 5. Compliance Mapping
+## 4. Compliance Mapping
 
 | Requirement | How this spec addresses it |
 |---|---|
@@ -254,7 +141,7 @@ The `classification_reason` field is a plain-English explanation of the outcome.
 
 ---
 
-## 6. Reference Implementation
+## 5. Reference Implementation
 
 [Valkurai](https://valkurai.com) implements this specification in full:
 
@@ -264,17 +151,17 @@ The `classification_reason` field is a plain-English explanation of the outcome.
 - Full audit trail with 10-year retention (EU AI Act Art. 9(9))
 - Compliance export for ISO 42001 and EU AI Act (JSON + PDF)
 
-SDK wrappers for LangChain, CrewAI, OpenAI, and Anthropic are available at [github.com/valkurai/valkurai](https://github.com/valkurai/valkurai) under the MIT licence.
+SDK wrappers for LangChain, CrewAI, OpenAI, and Anthropic are in development. Contact hello@valkurai.com for early access.
 
 ---
 
-## 7. Versioning
+## 6. Versioning
 
 Breaking changes to the YAML schema or payment event objects will increment `payment_schema_version`. Non-breaking additions (new optional fields) will not. The current version is `"1.0"`.
 
 ---
 
-## 8. Related Work and Standards Positioning
+## 7. Related Work and Standards Positioning
 
 The agentic payment standards landscape has fragmented significantly in Q1 2026, with ten active protocols and zero interoperability. This fragmentation strengthens the case for a governance layer upstream of all payment execution protocols. The `financial_governance` spec evaluates before any protocol-specific execution and is agnostic to which rail the operator or merchant uses.
 
@@ -300,14 +187,12 @@ The agentic payment standards landscape has fragmented significantly in Q1 2026,
 
 ---
 
-## 9. Version History
+## 8. Version History
 
 | Version | Date | Changes |
 |---|---|---|
-| 1.0-draft | April 2026 | Initial draft. Abstract, enforcement model, `financial_governance` YAML block, three payment event objects, firewall response contract, compliance mapping. |
-| 1.2-draft | April 2026 | §8 Related Work expanded to full standards positioning table with 14 protocols/standards. Fragmentation-as-advantage statement added. TAP Scenario B and D interaction notes added. x402 USDC compatibility noted. Stripe MPP watch item documented. DD-044. |
-| 1.1-draft | April 2026 | Added optional `delegation_chain` and `delegation_session_id` fields to `payment_required` event object. Advisory attribution only — no enforcement model prescribed. Ref: Valkurai DDL DD-043. |
+| 1.0-draft | April 2026 | Phase 1 minimal declarative block. spending caps, approval threshold, named firewall identifier, audit.extends reference, firewall response contract (SAFE/FLAGGED/BLOCKED), compliance mapping, standards positioning. |
 
 ---
 
-*financial_governance spec v1.2-draft · github.com/valkurai/gitagent-spec · Apache 2.0*
+*financial_governance spec v1.0-draft · github.com/valkurai/gitagent-spec · Apache 2.0*
