@@ -4,7 +4,7 @@
 **Status:** Draft — open for comment  
 **License:** Apache 2.0  
 **Repo:** github.com/valkurai/gitagent-spec  
-**RFC thread:** open-gitagent/gitagent issue #38
+**RFC thread:** open-gitagent/gitagent-protocol/issues/38
 
 ---
 
