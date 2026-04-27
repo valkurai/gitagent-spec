@@ -1,6 +1,6 @@
 # Contributing to financial_governance
 
-This standard emerged from open community discussion — specifically [open-gitagent/gitagent issue #38](https://github.com/open-gitagent/gitagent/issues/38) — and welcomes contributions from any implementor, researcher, or practitioner working on AI agent financial governance.
+This standard emerged from open community discussion — specifically [open-gitagent/gitagent-protocol #38](https://github.com/open-gitagent/gitagent-protocol/issues/38) — and welcomes contributions from any implementor, researcher, or practitioner working on AI agent financial governance.
 
 ## What kinds of contributions are welcome
 
